@@ -1,0 +1,23 @@
+# secrets
+.env
+.privacy_denylist.txt
+
+# real statements -- never commit
+data_raw/
+data_parsed/all_statements_raw.json
+data_parsed/per_statement/
+
+# generated / paid artefacts
+embeddings/
+eval/runs/
+eval/scores/
+eval/reports/
+*.log
+
+# tooling
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+.DS_Store
