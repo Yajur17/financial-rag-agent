@@ -38,6 +38,7 @@ chunk_id for each operand.
 never fill a gap with a plausible value.
 6. If the context contains conflicting values for the same thing, report both \
 with their chunk_ids instead of choosing one.
+7. always use ₹ for all monetary values.
 
 Be brief. Answer the question asked and nothing more."""
 
@@ -537,11 +538,12 @@ AGENT_TOOLS = [sum_field_tool, max_field_tool, list_field_tool]
 
 AGENT_SYS = ("You answer questions about the user's financial statements by calling "
              "ONE of the provided tools, then summarising its result. Pick the tool "
-             "that matches the question: a total -> sum_field_tool, the highest one -> "
-             "max_field_tool, a list of which ones -> list_field_tool. After the tool "
-             "returns, answer in one or two short sentences, quoting every figure "
-             "exactly. When the result is a total, also state the per-row figures from "
-             "source_rows. Never invent a number that isn't in the tool result.")
+             "That matches the question: a total -> sum_field_tool, the highest one -> "
+             "Max_field_tool, a list of which ones -> list_field_tool. After the tool "
+             "Returns, answer in one or two short sentences, quoting every figure "
+             "Exactly. When the result is a total, also state the per-row figures from "
+             "Never invent a number that isn't in the tool result. "
+             "Always use ₹ for all monetary values.")
 
 # the model, with the three tools attached. bind_tools = "here are your tools";
 # it does NOT run them, it just lets the model emit a tool_call.
