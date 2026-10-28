@@ -91,7 +91,17 @@ metrics on them are noise.
 These numbers come from the original private corpus (116 chunks). The synthetic
 dataset reproduces the same structure — **116 chunks: 12 mutual-fund, 62
 holdings, 39 transaction, 3 summary** — but different text, so retrieval scores
-will differ. Run `score.py` to get the numbers on the synthetic data.
+will differ. Running `python3 scripts/score.py` on the synthetic data gives:
+
+| Metric | Synthetic data (this repo) |
+|---|---|
+| Retrieve-path MAP (k = 5) | **0.506** |
+| Aggregate-path exact match | **11/13 (85%)** |
+
+The two aggregate misses are informative rather than random: Q14 (a list
+question whose answer wording varies run to run) and Q16 (the NAV is correct but
+the answer omits the ISIN the ground truth requires). One known formatting bug:
+the model occasionally prints `$` instead of `₹` for ETF values.
 
 ## Lessons
 
