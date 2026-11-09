@@ -2,9 +2,13 @@ from typing_extensions import TypedDict
 from langgraph.graph import START, END, StateGraph, MessagesState
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
-from langchain_core.messages import SystemMessage, HumanMessage, convert_to_openai_messages
+from langchain_core.messages import SystemMessage, HumanMessage, convert_to_openai_messages, AIMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
+from typing import Annotated
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import InMemorySaver
+
 import os
 import sys
 import json
@@ -249,6 +253,7 @@ class AgentState(TypedDict):
     answer: object
     context:  list
     grounding: dict
+    history: Annotated[list, add_messages]
 
 def aggregate_node(state):
     # The aggregate path runs the LangGraph ReAct agent (run_agent ->
@@ -364,12 +369,16 @@ def check_grounding(answer, chunks):
 
 def verify_node(state):
     answer = state["answer"]
+    # every path ends here, so this is where the answer joins the conversation
+    # history (AIMessage content must be a string, answer is typed object)
+    turn   = [AIMessage(content=str(answer))]
 
     # defensive: a non-string answer has no figures to check
     if not isinstance(answer, str):
         return {"grounding": {"figures": 0, "grounded": [], "derived": [],
                               "ungrounded": [], "is_grounded": True,
-                              "rate": 1.0}}
+                              "rate": 1.0},
+                "history": turn}
 
     report = check_grounding(answer, state["context"])
     flag   = "OK" if report["is_grounded"] else "UNGROUNDED"
@@ -379,8 +388,27 @@ def verify_node(state):
           + (f" -> {report['ungrounded']}" if report["ungrounded"] else ""))
 
     # annotate, never block: a flagged answer still reaches the caller, marked.
-    return {"grounding": report}
+    return {"grounding": report, "history": turn}
 
+
+REWRITE_SYS = """Rewrite the user's latest question as a standalone question, \
+using the conversation so far to fill in what it refers to (month, year, \
+security, metric). If it is already standalone, return it unchanged. \
+Return only the question, nothing else."""
+
+def rewrite_node(state):
+    # The router, get_month() and get_scheme() all read the question TEXT, so a
+    # follow-up like "and in June?" has to become a full question before routing.
+    # Memory alone doesn't help: the checkpointer stores history, this uses it.
+    history  = state["history"]
+    previous = history[:-1]            # the current question is already history[-1]
+    if not previous:                   # first turn: nothing to resolve, skip the LLM call
+        return {}
+
+    msgs      = [SystemMessage(REWRITE_SYS)] + previous + [HumanMessage(state["question"])]
+    rewritten = llm.invoke(msgs).content.strip()    # llm is defined below; looked up at call time
+    print(f"[rewrite] {state['question']!r} -> {rewritten!r}")
+    return {"question": rewritten}
 
 def route_question(state):
     if get_field(state["question"]) is None:
@@ -651,18 +679,24 @@ builder.add_node("retrieve", retrieve_node)
 builder.add_node("generate", generate_node)
 builder.add_node("verify", verify_node)
 
-builder.add_conditional_edges(START, route_question)
+builder.add_node("rewrite", rewrite_node)
+builder.add_edge(START, "rewrite")                       # rewrite first ...
+builder.add_conditional_edges("rewrite", route_question) # ... so the router sees a standalone question
 builder.add_edge("aggregate", "verify")
 builder.add_edge("retrieve", "generate")
 builder.add_edge("generate", "verify")
 builder.add_edge("verify", END)
 
-app = builder.compile()
+memory = InMemorySaver()
+
+app = builder.compile(checkpointer=memory)
 
 
-def ask(question):
-    """One question through the full graph; prints the answer + grounding."""
-    out = app.invoke({"question": question})
+def ask(question, thread_id="demo"):
+    """One question through the full graph; prints the answer + grounding.
+    Same thread_id = same conversation (history is remembered)."""
+    config = {"configurable": {"thread_id": thread_id}}
+    out = app.invoke({"question": question, "history": [HumanMessage(question)]}, config=config)
     print(out["answer"])
     return out
 
@@ -677,7 +711,7 @@ def run():
      for q in questions:
         print(f"\n{q['id']}: {q['question']}")
         try:
-           out = app.invoke({"question": q['question']})
+           out = app.invoke({"question": q['question'], "history": [HumanMessage(q['question'])]}, config={"configurable": {"thread_id": q['id']}})  # one thread per question: eval questions must stay independent
            print(out["answer"])
 
            g = out.get("grounding")
